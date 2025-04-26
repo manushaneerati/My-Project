@@ -1,71 +1,66 @@
-<?php 
+<?php
+// Start the session
 session_start();
 
-// Initialize goals and reminder in session if not already set
-if (!isset($_SESSION['goals'])) {
-    $_SESSION['goals'] = [];
+// Database connection (Replace with your actual database credentials)
+$host = 'localhost';
+$dbname = 'project';
+$username = 'root';
+$password = '';
+
+$conn = new mysqli($host, $username, $password, $dbname);
+if ($conn->connect_error) {
+    die("Connection failed: " . $conn->connect_error);
 }
 
-if (!isset($_SESSION['reminder'])) {
-    $_SESSION['reminder'] = ''; // Default empty reminder
-}
+// Use session username
+$current_username = isset($_SESSION['username']) ? $_SESSION['username'] : 'Guest';
 
-// Check if the user is logged in
-if (!isset($_SESSION['username'])) {
-    $_SESSION['msg'] = "You must log in first";
-    header('location: login.php');
-    exit();
-}
-
-if (isset($_GET['logout'])) {
-    session_destroy();
-    unset($_SESSION['username']);
-    header("location: login.php");
-    exit();
-}
-
-// Handle adding a new goal
+// Add goal
 if (isset($_POST['add_goal'])) {
-    $goalText = trim($_POST['goal_text']);
-    $targetDays = trim($_POST['target_days']); // Capture the target days
+    $goal_text = $_POST['goal_text'];
+    $target_days = $_POST['target_days'];
 
-    if ($goalText && $targetDays) {
-        $_SESSION['goals'][] = [
-            'text' => $goalText, 
-            'target_days' => $targetDays, // Store the target days
-            'start_date' => date("Y-m-d") // Capture the start date for tracking
-        ];
-    }
-    header('location: index.php'); // Redirect to refresh the page with updated goals
+    $stmt = $conn->prepare("INSERT INTO goals (goal_text, target_days, username) VALUES (?, ?, ?)");
+    $stmt->bind_param("sis", $goal_text, $target_days, $current_username);
+    $stmt->execute();
+
+    header("Location: index.php");
     exit();
 }
 
-// Handle removing a goal
+// Remove goal
 if (isset($_GET['remove_goal'])) {
-    $goalIndex = $_GET['remove_goal'];
-    unset($_SESSION['goals'][$goalIndex]);
-    $_SESSION['goals'] = array_values($_SESSION['goals']); // Reindex the array
-    header('location: index.php'); // Redirect to refresh the page
+    $goal_id = $_GET['remove_goal'];
+
+    $stmt = $conn->prepare("DELETE FROM goals WHERE id = ?");
+    $stmt->bind_param("i", $goal_id);
+    $stmt->execute();
+
+    header("Location: index.php");
     exit();
 }
 
-// Handle reminder input
-if (isset($_POST['add_reminder'])) {
-    $reminderText = trim($_POST['reminder_text']);
-    if ($reminderText) {
-        $_SESSION['reminder'] = $reminderText; // Save the reminder in session
+// Fetch user's goals by username
+$stmt = $conn->prepare("SELECT id, goal_text, target_days, username FROM goals WHERE username = ?");
+$stmt->bind_param("s", $current_username);
+$stmt->execute();
+$result = $stmt->get_result();
+
+$goals = [];
+if ($result->num_rows > 0) {
+    while ($row = $result->fetch_assoc()) {
+        $goals[] = $row;
     }
 }
 ?>
-
-<?php include('server.php') ?>
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Goal Tracker Dashboard</title>
+    <!-- Include Material Icons from Google -->
     <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons" />
     <style>
         /* General Styles for the Sidebar */
@@ -155,12 +150,18 @@ if (isset($_POST['add_reminder'])) {
             margin-top: 10px;
             color: #ff9900;
         }
- #calendar-section {
-            background-color: MistyRose;
-            padding: 10px;
-            margin-top: 10px;
-            border-radius: 8px;
-            display: none;
+        
+        /* Sidebar Links - Make sure Profile and Calendar text is white */
+        #sidebar a {
+            color: white; /* Set text color to white */
+            text-decoration: none; /* Remove underline from links */
+            display: block; /* Make links block-level to occupy the full width */
+            margin: 10px 0; /* Add margin for spacing */
+        }
+
+        /* Optionally, you can change the hover color to a different shade if needed */
+        #sidebar a:hover {
+            color: #ff9900; /* Change color to orange on hover for better visibility */
         }
     </style>
 </head>
@@ -188,9 +189,10 @@ if (isset($_POST['add_reminder'])) {
             </select><br>
 
             <!-- Calendar Link -->
-            <a href="javascript:void(0)" id="calendar-link"><i class="material-icons">calendar_today</i>Calendar</a><br>
+          <!--<a href="javascript:void(0)" id="calendar-link"><i class="material-icons">calendar_today</i>Calendar</a><br>-->
 
-            <div id="calendar-section" style="display: none;">
+
+           <div id="calendar-section" style="display: none;">
                 <div id="calendar-header">
                     <span id="month-year"></span>
                     <select id="month-select" onchange="updateCalendar()">
@@ -218,17 +220,13 @@ if (isset($_POST['add_reminder'])) {
                 </table>
             </div>
 
-            <div id="selected-date">
-                <h4>Selected Date: <span id="date-display">None</span></h4>
-            </div>
-
-            <p><a href="index.php?logout='1'" style="color: white;"><i class="material-icons">exit_to_app</i>Logout</a></p>
+                      <p><a href="login.php?logout='1'" style="color: white;"><i class="material-icons">exit_to_app</i>Logout</a></p>
         </div>
 
         <!-- Main Section -->
         <div class="main-content" id="main-section">
             <h2>Your Goals</h2>
-
+  
             <!-- Add Goal Form -->
             <form action="index.php" method="POST">
                 <input type="text" name="goal_text" placeholder="Enter a new goal" required>
@@ -237,109 +235,121 @@ if (isset($_POST['add_reminder'])) {
             </form>
 
             <div class="goal-list">
-                <?php if (count($_SESSION['goals']) > 0): ?>
-                    <?php foreach ($_SESSION['goals'] as $index => $goal): ?>
-                        <div class="goal-item">
-                            <p><strong><?php echo $goal['text']; ?></strong></p>
-                            <p>Target Days: <?php echo $goal['target_days']; ?> days</p> <!-- Display target days -->
-                            <a href="index.php?remove_goal=<?php echo $index; ?>" class="remove-goal" style="color: red;">Remove Goal</a>
-                        </div>
-                    <?php endforeach; ?>
+                <?php if (count($goals) > 0): ?>
+                    <?php foreach ($goals as $goal): ?>
+                       <div class="goal-item" data-goal-id="<?php echo $goal['id']; ?>">
+    <p><strong><?php echo $goal['goal_text']; ?></strong></p>
+    <p>Target Days: <?php echo $goal['target_days']; ?> days</p>
+    <p>Added by: <?php echo $goal['username']; ?></p>
+</div>
+ <!--<progress id="progressBar" value="0" max="100"></progress>
+         <p id="progressText">Progress: 0%</p>-->
+
+                 
+   <?php endforeach; ?>
                 <?php else: ?>
                     <p>No goals yet. Add one above!</p>
+       
+      
                 <?php endif; ?>
             </div>
         </div>
     </div>
 
-    <script>
-        // Toggle the visibility of the calendar section
-        document.getElementById('calendar-link').addEventListener('click', function () {
-            const calendarSection = document.getElementById('calendar-section');
-            if (calendarSection.style.display === 'none' || calendarSection.style.display === '') {
-                calendarSection.style.display = 'block';
-                generateCalendar(); // Generate the calendar when it's displayed
-            } else {
-                calendarSection.style.display = 'none';
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    const goals = document.querySelectorAll('.goal-item');
+
+    goals.forEach((goalItem) => {
+        const goalId = goalItem.dataset.goalId = goalItem.dataset.goalId || 
+            (goalItem.querySelector('a.remove-goal')?.href.match(/remove_goal=(\d+)/)?.[1] || '');
+
+        const targetDays = parseInt(goalItem.querySelector('p:nth-child(2)').textContent.match(/\d+/)[0]);
+
+        // Remove any pre-existing remove link from PHP
+        const oldRemoveLink = goalItem.querySelector('.remove-goal');
+        if (oldRemoveLink) oldRemoveLink.remove();
+
+        // Create date picker
+        const dateInput = document.createElement('input');
+        dateInput.type = 'date';
+        dateInput.placeholder = 'Select start date';
+        goalItem.appendChild(dateInput);
+
+        // Container for checkboxes
+        const daysContainer = document.createElement('div');
+        goalItem.appendChild(daysContainer);
+
+        // Create progress bar
+        const progressBar = document.createElement('progress');
+        progressBar.value = 0;
+        progressBar.max = 100;
+        goalItem.appendChild(progressBar);
+
+        // Create progress text
+        const progressText = document.createElement('p');
+        progressText.textContent = 'Progress: 0%';
+        goalItem.appendChild(progressText);
+
+        // Create remove link
+        const removeLink = document.createElement('a');
+        removeLink.href = `index.php?remove_goal=${goalId}`;
+        removeLink.className = 'remove-goal';
+        removeLink.textContent = 'Remove Goal';
+        removeLink.style.color = 'red';
+        removeLink.style.display = 'block';
+        removeLink.style.marginTop = '10px';
+        goalItem.appendChild(removeLink);
+
+        let allDates = [];
+        let checkedDates = [];
+
+        dateInput.addEventListener('change', () => {
+            daysContainer.innerHTML = '';
+            allDates = [];
+            checkedDates = [];
+
+            const startDate = new Date(dateInput.value);
+            if (isNaN(startDate)) return;
+
+            for (let i = 0; i < targetDays; i++) {
+                const date = new Date(startDate);
+                date.setDate(startDate.getDate() + i);
+                const dateStr = date.toISOString().split('T')[0];
+                allDates.push(dateStr);
+
+                const label = document.createElement('label');
+                label.style.display = 'block';
+                label.style.margin = '5px 0';
+
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.dataset.date = dateStr;
+
+                checkbox.addEventListener('change', () => {
+                    if (checkbox.checked) {
+                        checkedDates.push(dateStr);
+                    } else {
+                        checkedDates = checkedDates.filter(d => d !== dateStr);
+                    }
+                    updateProgress();
+                });
+
+                label.appendChild(checkbox);
+                label.append(` ${dateStr}`);
+                daysContainer.appendChild(label);
             }
+
+            updateProgress();
         });
 
-        function updateCalendar() {
-            const month = parseInt(document.getElementById('month-select').value);
-            const year = parseInt(document.getElementById('year-select').value);
-            generateCalendar(month, year);
+        function updateProgress() {
+            const progress = (checkedDates.length / allDates.length) * 100;
+            progressBar.value = progress;
+            progressText.textContent = `Progress: ${progress.toFixed(2)}%`;
         }
-
-        function generateCalendar(month = new Date().getMonth(), year = new Date().getFullYear()) {
-            const calendarBody = document.getElementById('calendar-body');
-            const calendarHeader = document.getElementById('month-year');
-            const monthSelect = document.getElementById('month-select');
-            const yearSelect = document.getElementById('year-select');
-
-            const firstDayOfMonth = new Date(year, month, 1);
-            const lastDateOfMonth = new Date(year, month + 1, 0);
-            const totalDays = lastDateOfMonth.getDate();
-            const firstDay = firstDayOfMonth.getDay();
-
-            const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-            calendarHeader.innerHTML = `${months[month]} ${year}`;
-
-            monthSelect.innerHTML = '';
-            months.forEach((m, i) => {
-                const option = document.createElement('option');
-                option.value = i;
-                option.textContent = m;
-                if (i === month) option.selected = true;
-                monthSelect.appendChild(option);
-            });
-
-            const currentYear = new Date().getFullYear();
-            yearSelect.innerHTML = '';
-            for (let i = currentYear - 5; i <= currentYear + 5; i++) {
-                const option = document.createElement('option');
-                option.value = i;
-                option.textContent = i;
-                if (i === year) option.selected = true;
-                yearSelect.appendChild(option);
-            }
-
-            let calendarHTML = '';
-            let dayCounter = 1;
-
-            calendarHTML += '<tr>';
-            for (let i = 0; i < firstDay; i++) {
-                calendarHTML += '<td></td>';
-            }
-
-            for (let i = firstDay; i < 7; i++) {
-                calendarHTML += `<td onclick="showDay('${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][i]}', ${dayCounter}, ${month}, ${year})">${dayCounter}</td>`;
-                dayCounter++;
-            }
-            calendarHTML += '</tr>';
-
-            while (dayCounter <= totalDays) {
-                calendarHTML += '<tr>';
-                for (let i = 0; i < 7 && dayCounter <= totalDays; i++) {
-                    calendarHTML += `<td onclick="showDay('${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][i]}', ${dayCounter}, ${month}, ${year})">${dayCounter}</td>`;
-                    dayCounter++;
-                }
-                calendarHTML += '</tr>';
-            }
-
-            calendarBody.innerHTML = calendarHTML;
-        }
-
-        function showDay(day, date, month, year) {
-            const dateDisplay = document.getElementById("date-display");
-            const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-            dateDisplay.innerText = `${months[month]} ${date}, ${year}`;
-        }
-
-        window.onload = function () {
-            const currentMonth = new Date().getMonth();
-            const currentYear = new Date().getFullYear();
-            generateCalendar(currentMonth, currentYear);
-        };
-    </script>
+    });
+});
+</script>
 </body>
-</html>
+</html> 
