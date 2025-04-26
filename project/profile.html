@@ -1,47 +1,44 @@
 <?php
-session_start();
-
-// Initialize goals in session if not already set
-if (!isset($_SESSION['goals'])) {
-    $_SESSION['goals'] = [];
-}
+// Include the server file to use the session and database connection
+include('server.php');
 
 // Check if the user is logged in
 if (!isset($_SESSION['username'])) {
     $_SESSION['msg'] = "You must log in first";
     header('location: login.php');
+    exit();
 }
 
-if (isset($_GET['logout'])) {
-    session_destroy();
-    unset($_SESSION['username']);
-    header("location: login.php");
+// Fetch user information from the database
+$username = $_SESSION['username']; // Use session variable for username
+$query = "SELECT * FROM users WHERE username='$username'"; // Assuming a 'users' table
+$result = mysqli_query($db, $query);
+
+// Check if the query returns a result
+if (mysqli_num_rows($result) > 0) {
+    $user = mysqli_fetch_assoc($result);
+    $email = $user['email']; // Assuming the 'email' field exists in the users table
+    $gender = $user['gender']; // Assuming the 'gender' field exists in the users table
+} else {
+    // Handle the case if no user is found
+    echo "User not found!";
+    exit();
 }
 
-// Handle adding a new goal
-if (isset($_POST['add_goal'])) {
-    $goalText = trim($_POST['goal_text']);
-    $targetDays = trim($_POST['target_days']); // Capture the target days
+// Handle gender update
+if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_gender'])) {
+    $new_gender = $_POST['gender'];
 
-    if ($goalText && $targetDays) {
-        $startDate = date('Y-m-d'); // Store current date as start date
+    // Update gender in the database
+    $update_query = "UPDATE users SET gender='$new_gender' WHERE username='$username'";
 
-        $_SESSION['goals'][] = [
-            'text' => $goalText, 
-            'progress' => 0,
-            'target_days' => $targetDays, // Store target days
-            'start_date' => $startDate // Store the start date
-        ];
+    if (mysqli_query($db, $update_query)) {
+        // Update session gender after successful update
+        $_SESSION['gender'] = $new_gender;
+        $gender = $new_gender; // Update the gender in the profile
+    } else {
+        echo "Error updating gender: " . mysqli_error($db);
     }
-    header('location: index.php'); // Redirect to refresh the page with updated goals
-}
-
-// Handle removing a goal
-if (isset($_GET['remove_goal'])) {
-    $goalIndex = $_GET['remove_goal'];
-    unset($_SESSION['goals'][$goalIndex]);
-    $_SESSION['goals'] = array_values($_SESSION['goals']); // Reindex the array
-    header('location: index.php'); // Redirect to refresh the page
 }
 ?>
 <!DOCTYPE html>
@@ -49,115 +46,140 @@ if (isset($_GET['remove_goal'])) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Goal Tracker Dashboard</title>
-    <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons" />
+    <title>User Profile</title>
+    <link rel="stylesheet" href="styles.css">
     <style>
-        /* Your existing styles */
+        /* Profile Page Styles */
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f4f9;
+            margin: 0;
+            padding: 0;
+            color: #333;
+        }
+
+        header {
+            background-color: DarkBlue;
+            color: white;
+            text-align: center;
+text-decoration:underline;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 20px auto;
+            padding: 20px;
+            background-color: white;
+            border-radius: 8px;
+            height:69vh;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        h1 {
+            font-size: 2.5em;
+            margin: 0;
+        }
+
+        h2 {
+            font-size: 1.8em;
+            color: #5d5d5d;
+        }
+
+        .profile-info {
+            margin-top: 20px;
+        }
+
+        .profile-info p {
+            font-size: 1.2em;
+            line-height: 1.6;
+            margin: 10px 0;
+        }
+
+        .profile-info strong {
+            font-weight: bold;
+            color: #444;
+        }
+
+        .gender-section {
+            margin-top: 20px;
+            font-size: 1.2em;
+        }
+
+        .btn {
+            display: inline-block;
+            background-color: #007bff;
+            color: white;
+            padding: 10px 20px;
+            font-size: 16px;
+            text-decoration: none;
+            border-radius: 5px;
+            margin-top: 20px;
+            transition: background-color 0.3s ease;
+        }
+
+        .btn:hover {
+            background-color: #0056b3;
+        }
+
+        .back-btn {
+            background-color: #28a745;
+        }
+
+        .back-btn:hover {
+            background-color: #218838;
+        }
+
+        .logout-btn {
+            background-color: #dc3545;
+        }
+
+        .logout-btn:hover {
+            background-color: #c82333;
+        }
+
+        footer {
+            text-align: center;
+            margin-top: 40px;
+            padding: 10px;
+            background-color: DarkBlue;
+            color: white;
+        }
     </style>
 </head>
-
 <body>
     <header>
-        <h1>Goal Tracker</h1>
+        <h1>User Profile</h1>
     </header>
 
-    <div class="container" style="display: flex;">
-        <!-- Sidebar -->
-        <div id="sidebar">
-            <div class="top">
-                <div class="logo">
-                    <img id="logo" src="images/logo1.jpg" alt="Logo" width="100" height="60">
-                    <h2>Goal <span class="pink">Tracker</span></h2>
-                </div>
-            </div>
+    <div class="container">
+        <h2>Welcome, <?php echo $username; ?>!</h2>
 
-            <a href="profile.php"><i class="material-icons">person</i>Profile</a><br>
-            <label for="goal-type"><i class="material-icons">star</i>Goal Type:</label>
-            <select id="goal-type" name="goal-type">
-                <option value="short-term">Short-Term</option>
-                <option value="long-term">Long-Term</option>
-            </select><br>
-
-            <!-- Target Days Input -->
-            <label for="target-days"><i class="material-icons">calendar_today</i>Target Days:</label>
-            <input type="number" id="target-days" name="target_days" placeholder="Enter days" required><br>
-
-            <p><a href="index.php?logout='1'" style="color: white;"><i class="material-icons">exit_to_app</i>Logout</a></p>
+        <div class="profile-info">
+            <p><strong>Username:</strong> <?php echo $username; ?></p>
+            <p><strong>Email:</strong> <?php echo $email; ?></p>
         </div>
 
-        <!-- Main Section -->
-        <div class="main-content" id="main-section">
-            <h2>Your Goals</h2>
+        <!-- Gender Section -->
+        <div class="gender-section">
+            <form method="POST" action="">
+                <strong>Gender:</strong><br>
+                <input type="radio" id="male" name="gender" value="Male" <?php if ($gender == 'Male') echo 'checked'; ?>>
+                <label for="male">Male</label><br>
+                <input type="radio" id="female" name="gender" value="Female" <?php if ($gender == 'Female') echo 'checked'; ?>>
+                <label for="female">Female</label><br><br>
 
-            <!-- Add Goal Form -->
-            <form action="index.php" method="POST">
-                <input type="text" name="goal_text" placeholder="Enter a new goal" required>
-                <input type="number" name="target_days" placeholder="Target Days" required> <!-- Added target days input -->
-                <button type="submit" name="add_goal">Add Goal</button>
+                <!-- Submit Button to Update Gender -->
+                <button type="submit" name="update_gender" class="btn">Update Gender</button>
             </form>
-
-            <div class="goal-list">
-                <?php if (count($_SESSION['goals']) > 0): ?>
-                    <?php foreach ($_SESSION['goals'] as $index => $goal): ?>
-                       <div class="goal-item">
-                            <p><strong><?php echo $goal['text']; ?></strong></p>
-                            <p>Target Days: <?php echo $goal['target_days']; ?> days</p>
-                            <p>Start Date: <?php echo $goal['start_date']; ?></p>
-                            <p>Progress: 
-                                <?php
-                                    // Calculate the progress
-                                    $startDate = new DateTime($goal['start_date']);
-                                    $currentDate = new DateTime();
-                                    $interval = $startDate->diff($currentDate);
-                                    $daysPassed = $interval->days;
-                                    $daysRemaining = $goal['target_days'] - $daysPassed;
-                                    
-                                    if ($daysPassed >= $goal['target_days']) {
-                                        echo "Goal Completed!";
-                                    } else {
-                                        echo "$daysPassed days passed, $daysRemaining days remaining";
-                                    }
-                                ?>
-                            </p>
-                            <a href="index.php?remove_goal=<?php echo $index; ?>" class="remove-goal" style="color: red;">Remove Goal</a>
-                        </div>
-                    <?php endforeach; ?>
-                <?php else: ?>
-                    <p>No goals yet. Add one above!</p>
-                <?php endif; ?>
-            </div>
         </div>
+
+        <a href="index.php" class="btn back-btn">Back to Dashboard</a>
+        <a href="login.php?logout='1'" class="btn logout-btn">Logout</a>
     </div>
 
-    <script>
-        document.addEventListener("DOMContentLoaded", function () {
-            // Handle validation for "Target Days" input (ensure it's a positive integer)
-            const targetDaysInput = document.querySelector('input[name="target_days"]');
-            targetDaysInput.addEventListener('input', function (e) {
-                const value = e.target.value;
-                // Only allow positive integers for target days
-                if (value && value <= 0) {
-                    e.target.setCustomValidity('Please enter a valid number of target days');
-                } else {
-                    e.target.setCustomValidity('');
-                }
-            });
-
-            // Handle form submission validation (Goal Text and Target Days)
-            const addGoalForm = document.querySelector('form[action="index.php"]');
-            addGoalForm.addEventListener('submit', function (event) {
-                const goalTextInput = addGoalForm.querySelector('input[name="goal_text"]');
-                const targetDaysInput = addGoalForm.querySelector('input[name="target_days"]');
-                
-                const goalText = goalTextInput.value.trim();
-                const targetDaysValue = targetDaysInput.value;
-
-                if (!goalText || !targetDaysValue || targetDaysValue <= 0) {
-                    event.preventDefault(); // Prevent form submission
-                    alert('Please provide a valid goal description and target days');
-                }
-            });
-        });
-    </script>
+    <footer>
+        <p>&copy; 2025 Goal Tracker. All rights reserved.</p>
+    </footer>
 </body>
 </html>
